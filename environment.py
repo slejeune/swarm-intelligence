@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from typing import Optional
+from typing import Optional, Tuple, Union
 
 from agents import Boid
 
@@ -81,6 +81,28 @@ class Track:
             c.plot(ax=ax, color=color)
         return ax
 
+    def sample(self, size: int) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Sample a random position within the straight.
+
+        Args:
+            size(int): The number of positions to sample.
+
+        Returns:
+            Tuple[float, float]: The sampled x and y positions.
+        """
+        samples_x = np.zeros(size)
+        samples_y = np.zeros(size)
+        for i, component in enumerate(self.components):
+            (
+                samples_x[i * (size // len(self.components)): (i+1) * (size // len(self.components))],
+                samples_y[i * (size // len(self.components)): (i+1) * (size // len(self.components))],
+            ) = component.sample(size=size // len(self.components))
+        remainder = size - len(self.components) * (size // len(self.components))
+        if remainder > 0:
+            samples_x[-remainder:], samples_y[-remainder:] = np.random.choice(self.components).sample(remainder)
+        return samples_x, samples_y
+
     class Straight:
         def __init__(self, center_x: float, center_y: float, width: float, height: float):
             """
@@ -97,17 +119,32 @@ class Track:
             self.width = width
             self.height = height
 
+        def sample(self, size: int) -> Tuple[np.ndarray, np.ndarray]:
+            """
+            Sample a random position within the straight.
+
+            Args:
+                size(int): The number of positions to sample.
+
+            Returns:
+                Tuple[np.ndarray, np.ndarray]: The sampled x and y positions.
+            """
+            x = np.random.uniform(low=-0.5, high=0.5, size=size) * self.width + self.center_x
+            y = np.random.uniform(low=-0.5, high=0.5, size=size) * self.height + self.center_y
+            return x, y
+
         def contains(self, boid: Boid):
             """
             Verify whether the position of the boid falls within this component.
+
             Args:
                 boid (Boid): The boid.
 
             Returns:
                 bool: True if the position of the boid falls within this component.
             """
-            contains_x = self.center_x - self.width <= boid.pos_x <= self.center_x + self.width
-            contains_y = self.center_y - self.height <= boid.pos_y <= self.center_y + self.height
+            contains_x = self.center_x - self.width / 2 <= boid.pos_x <= self.center_x + self.width / 2
+            contains_y = self.center_y - self.height / 2 <= boid.pos_y <= self.center_y + self.height / 2
             return contains_x and contains_y
 
         def plot(self, ax: plt.Axes, color: str) -> plt.Axes:
@@ -142,6 +179,8 @@ class Track:
             """
             Create a curved tack component.
 
+            An ellipsoid can be described as x**2/a**2 + y**2/b**2 = 1.
+
             Args:
                 center_x (float): the x-coordinate of the center of the ellipsoid.
                 center_y (float): the x-coordinate of the center of the ellipsoid.
@@ -160,9 +199,18 @@ class Track:
             self.height = height
             self.left = left
 
+        def inner_curve(self, y: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+            return self.center_x + np.sqrt(self.a ** 2 * (1 - y ** 2 / self.b ** 2))
+
+        def outer_curve(self, y: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
+            return self.center_x + np.sqrt((self.a + self.width) ** 2 * (1 - y ** 2 / (self.b + self.height) ** 2))
+
         def contains(self, boid: Boid):
             """
             Verify whether the position of the boid falls within this component.
+            TODO: This function is not behaving properly as it should still be moved with the center_x and center_y
+                of the ellipsoid. Furthermore, the sign change of a left vs right ellipsoid has not been incorporated
+                yet.
             Args:
                 boid (Boid): The boid.
 
@@ -174,6 +222,30 @@ class Track:
                 boid.pos_x ** 2 / (self.a + self.width) ** 2 + boid.pos_y ** 2 / (self.b + self.height) ** 2 <= 1
             )
             return larger_than_inner and smaller_than_outer
+
+        def sample(self, size: int) -> Tuple[np.ndarray, np.ndarray]:
+            """
+            Sample a random position within the ellipsoid.
+
+            Args:
+                size(int): The number of positions to sample.
+
+            Returns:
+                Tuple[np.ndarray, np.ndarray]: The sampled x and y positions.
+            """
+            y_inner = np.random.uniform(low=self.center_y - self.b, high=self.center_y + self.b, size=size)
+            if self.left:
+                x = np.empty(size)
+                for i in range(size):
+                    x[i] = np.random.uniform(
+                        low=-(self.inner_curve(y=y_inner[i])), high=-self.outer_curve(y=y_inner[i])
+                    )
+                return x, y_inner
+
+            x = np.empty(size)
+            for i in range(size):
+                x[i] = np.random.uniform(low=self.inner_curve(y=y_inner[i]), high=self.outer_curve(y=y_inner[i]))
+            return x, y_inner
 
         def plot(self, ax: plt.Axes, color: str) -> plt.Axes:
             """
@@ -188,15 +260,13 @@ class Track:
             """
             # inner ellipsoid
             y = np.linspace(start=self.center_y - self.b, stop=self.center_y + self.b, num=1000)
-            curve = self.center_x + np.sqrt(self.a ** 2 * (1 - y ** 2 / self.b ** 2))
-            curve = -curve if self.left else curve
+            curve = -self.inner_curve(y=y) if self.left else self.inner_curve(y=y)
             ax.plot(curve, y, color=color)
 
             # outer ellipsoid
             y = np.linspace(
                 start=self.center_y - (self.b + self.height), stop=self.center_y + (self.b + self.height), num=1000
             )
-            curve = self.center_x + np.sqrt((self.a + self.width) ** 2 * (1 - y ** 2 / (self.b + self.height) ** 2))
-            curve = -curve if self.left else curve
+            curve = -self.outer_curve(y=y) if self.left else self.outer_curve(y=y)
             ax.plot(curve, y, color=color)
             return ax
