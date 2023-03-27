@@ -37,16 +37,17 @@ class Track:
         self.straight_height = straight_height
         self.curve_width = curve_width
         self.curve_height = curve_height
+        self.spacing = spacing
         self.upper_straight = self.Straight(
             center_x=self.center_x,
-            center_y=self.center_y + (self.curve_height + self.straight_height / 2),
+            center_y=self.center_y + (self.curve_height/2 + self.straight_height / 2),
             width=self.straight_width,
             height=self.straight_height,
             upper=True,
         )
         self.lower_straight = self.Straight(
             center_x=self.center_x,
-            center_y=self.center_y - (self.curve_height + self.straight_height / 2),
+            center_y=self.center_y - (self.curve_height/2 + self.straight_height / 2),
             width=self.straight_width,
             height=self.straight_height,
             upper=False,
@@ -55,7 +56,7 @@ class Track:
             center_x=self.center_x + self.straight_width / 2,
             center_y=self.center_y,
             a=spacing,
-            b=curve_height,
+            b=curve_height/2,
             width=curve_width,
             height=straight_height,
             left=True,
@@ -64,7 +65,7 @@ class Track:
             center_x=self.center_x + self.straight_width / 2,
             center_y=self.center_y,
             a=spacing,
-            b=curve_height,
+            b=curve_height/2,
             width=curve_width,
             height=straight_height,
             left=False,
@@ -117,17 +118,20 @@ class Track:
         """
         offsets = []
         markers = []
-        # self.align()
+        self.align()
+        self.steer_towards_track()
+
         for boid in self.boids:
             boid.update()
+
             offsets.append([boid.pos_x, boid.pos_y])
             marker = MarkerStyle(">")
             marker._transform = marker.get_transform().rotate_deg(np.degrees(boid.direction))
             markers.append(marker)
 
-            self.steer_towards_track(boid=boid)
-
         return offsets, markers
+    
+    
 
     def align(self):
         boid_positions = np.array([[b.pos_x, b.pos_y] for b in self.boids])
@@ -141,36 +145,16 @@ class Track:
         indices = tree.query_radius([[boid.pos_x, boid.pos_y]], r=radius, count_only=False, return_distance=False)
         return self.boids[indices[0]]
 
-    def steer_towards_track(self, boid: Boid):
-        inside_counter = 0
-        for component in self.components:
-            boid_on_track, inside = component.contains(boid)
-            if inside:
-                inside_counter += 1
+    def border(x,y,half_width,half_height,spacing):
+        return np.where((-half_width < x) & (x < half_width), 0, (x-np.sign(x)*half_width)**2/spacing**2) + y**2/half_height**2
+    
+    def steer_towards_track(self):
+        for boid in self.boids:
+            if Track.border(boid.pos_x,boid.pos_y,self.straight_width/2,self.curve_height/2,self.spacing) < 1:
+                boid.direction = np.angle(np.complex(boid.pos_x,boid.pos_y))
 
-            if boid_on_track:
-                print("On track")
-                return
-
-        if inside_counter >= len(self.components)-1:
-            print("Inside")
-            boid_vector = np.array([boid.pos_x, boid.pos_y])
-            x_axis = np.array([0.001, 0.001])
-            if boid.pos_x < 0:
-                x_axis = x_axis * -1
-            boid.direction = np.arccos(
-                boid_vector @ x_axis / (np.linalg.norm(boid_vector) * np.linalg.norm(x_axis))
-            )
-
-        else:
-            boid_vector = np.array([boid.pos_x, boid.pos_y])
-            x_axis = np.array([0.001, 0.001])
-            print(boid.direction)
-            boid.direction = np.arccos(
-                boid_vector @ x_axis / (np.linalg.norm(boid_vector) * np.linalg.norm(x_axis))
-            )
-            print(boid.direction)
-            boid.direction = (boid.direction + np.pi) % (2 * np.pi)
+            if Track.border(boid.pos_x,boid.pos_y,self.straight_width/2,self.curve_height/2+self.straight_height,self.spacing+self.curve_width) > 1:
+                boid.direction = np.angle(np.complex(-boid.pos_x,-boid.pos_y))
 
     class Straight:
         def __init__(self, center_x: float, center_y: float, width: float, height: float, upper: bool):
