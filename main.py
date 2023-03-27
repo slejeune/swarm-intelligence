@@ -24,8 +24,10 @@ def main():
     scatter = plt.scatter(x, y, marker=boid_marker)
 
     def animate(i=int):
-        positions, _ = track.update()
+        positions, markers = track.update()
         scatter.set_offsets(positions)
+        paths = [m.get_path().transformed(m.get_transform()) for m in markers]
+        scatter.set_paths(paths)
 
         # scatter.set_paths(markers)
         return scatter
