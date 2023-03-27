@@ -1,6 +1,9 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.markers import MarkerStyle
 from typing import Optional, Tuple, Union
+
+from sklearn.neighbors import KDTree
 
 from agents import Boid
 
@@ -15,6 +18,7 @@ class Track:
         curve_width: Optional[float] = 1.2,
         curve_height: Optional[float] = 2.9,
         spacing: Optional[float] = 1.5,
+        domain: np.ndarray = np.array([[-6, -6], [6, 6]]),
     ):
         """
         Create a track. The track is subdivided into 4 components: 2 straight lanes and 2 ellipsoids.
@@ -38,12 +42,14 @@ class Track:
             center_y=self.center_y + (self.curve_height + self.straight_height / 2),
             width=self.straight_width,
             height=self.straight_height,
+            upper=True,
         )
         self.lower_straight = self.Straight(
             center_x=self.center_x,
             center_y=self.center_y - (self.curve_height + self.straight_height / 2),
             width=self.straight_width,
             height=self.straight_height,
+            upper=False,
         )
         self.left_ellipsoid = self.Ellipsoid(
             center_x=self.center_x + self.straight_width / 2,
@@ -65,6 +71,7 @@ class Track:
         )
         self.components = [self.upper_straight, self.lower_straight, self.left_ellipsoid, self.right_ellipsoid]
         self.boids = np.array([])
+        self.domain = domain
 
     def plot(self, ax: plt.Axes, color: Optional[str] = "tab:blue") -> plt.Axes:
         """
@@ -91,32 +98,82 @@ class Track:
         samples_y = np.zeros(size)
         for i, component in enumerate(self.components):
             (
-                samples_x[i * (size // len(self.components)): (i+1) * (size // len(self.components))],
-                samples_y[i * (size // len(self.components)): (i+1) * (size // len(self.components))],
+                samples_x[i * (size // len(self.components)) : (i + 1) * (size // len(self.components))],
+                samples_y[i * (size // len(self.components)) : (i + 1) * (size // len(self.components))],
             ) = component.sample(size=size // len(self.components))
         remainder = size - len(self.components) * (size // len(self.components))
         if remainder > 0:
             samples_x[-remainder:], samples_y[-remainder:] = np.random.choice(self.components).sample(remainder)
 
-        self.boids = np.array([Boid(samples_x[i], samples_y[i]) for i in range(samples_x.shape[0])])
+        self.boids = np.array([Boid(samples_x[i], samples_y[i], domain=self.domain) for i in range(samples_x.shape[0])])
 
         return samples_x, samples_y
-    
-    def update(self) -> list:
-        '''
+
+    def update(self) -> Tuple[list, list]:
+        """
         Update the position of the boids each timestep.
         Returns:
             list: The new positions of the boids.
-        '''
+        """
         offsets = []
+        markers = []
+        # self.align()
         for boid in self.boids:
             boid.update()
             offsets.append([boid.pos_x, boid.pos_y])
+            marker = MarkerStyle(">")
+            marker._transform = marker.get_transform().rotate_deg(np.degrees(boid.direction))
+            markers.append(marker)
 
-        return offsets
+            self.steer_towards_track(boid=boid)
+
+        return offsets, markers
+
+    def align(self):
+        boid_positions = np.array([[b.pos_x, b.pos_y] for b in self.boids])
+        tree = KDTree(boid_positions, leaf_size=10)
+        for boid in self.boids:
+            neighbours = self.get_neighbours(boid, radius=0.5, tree=tree)
+            directions = np.array([b.direction for b in neighbours])
+            boid.direction = np.arctan2(np.mean(np.sin(directions)), np.mean(np.cos(directions)))
+
+    def get_neighbours(self, boid: Boid, radius: float, tree: KDTree) -> np.ndarray:
+        indices = tree.query_radius([[boid.pos_x, boid.pos_y]], r=radius, count_only=False, return_distance=False)
+        return self.boids[indices[0]]
+
+    def steer_towards_track(self, boid: Boid):
+        inside_counter = 0
+        for component in self.components:
+            boid_on_track, inside = component.contains(boid)
+            if inside:
+                inside_counter += 1
+
+            if boid_on_track:
+                print("On track")
+                return
+
+        if inside_counter >= len(self.components)-1:
+            print("Inside")
+            boid_vector = np.array([boid.pos_x, boid.pos_y])
+            x_axis = np.array([0.001, 0.001])
+            if boid.pos_x < 0:
+                x_axis = x_axis * -1
+            boid.direction = np.arccos(
+                boid_vector @ x_axis / (np.linalg.norm(boid_vector) * np.linalg.norm(x_axis))
+            )
+
+        else:
+            boid_vector = np.array([boid.pos_x, boid.pos_y])
+            x_axis = np.array([0.001, 0.001])
+            print(boid.direction)
+            boid.direction = np.arccos(
+                boid_vector @ x_axis / (np.linalg.norm(boid_vector) * np.linalg.norm(x_axis))
+            )
+            print(boid.direction)
+            boid.direction = (boid.direction + np.pi) % (2 * np.pi)
 
     class Straight:
-        def __init__(self, center_x: float, center_y: float, width: float, height: float):
+        def __init__(self, center_x: float, center_y: float, width: float, height: float, upper: bool):
             """
             Create a straight lane.
             Args:
@@ -129,6 +186,7 @@ class Track:
             self.center_y = center_y
             self.width = width
             self.height = height
+            self.upper = upper
 
         def sample(self, size: int) -> Tuple[np.ndarray, np.ndarray]:
             """
@@ -149,10 +207,15 @@ class Track:
                 boid (Boid): The boid.
             Returns:
                 bool: True if the position of the boid falls within this component.
+                bool: True if the position of the boid is on the inside of the track instead of within the track
             """
             contains_x = self.center_x - self.width / 2 <= boid.pos_x <= self.center_x + self.width / 2
             contains_y = self.center_y - self.height / 2 <= boid.pos_y <= self.center_y + self.height / 2
-            return contains_x and contains_y
+
+            if self.upper:
+                return contains_x and contains_y,  self.center_y - self.height / 2 > boid.pos_y
+
+            return contains_x and contains_y, boid.pos_y > self.center_y + self.height / 2
 
         def plot(self, ax: plt.Axes, color: str) -> plt.Axes:
             """
@@ -211,19 +274,36 @@ class Track:
         def contains(self, boid: Boid):
             """
             Verify whether the position of the boid falls within this component.
-            TODO: This function is not behaving properly as it should still be moved with the center_x and center_y
-                of the ellipsoid. Furthermore, the sign change of a left vs right ellipsoid has not been incorporated
-                yet.
+
             Args:
                 boid (Boid): The boid.
             Returns:
                 bool: True if the position of the boid falls within this component.
             """
-            larger_than_inner = boid.pos_x ** 2 / self.a ** 2 + boid.pos_y ** 2 / self.b ** 2 >= 1
-            smaller_than_outer = (
-                boid.pos_x ** 2 / (self.a + self.width) ** 2 + boid.pos_y ** 2 / (self.b + self.height) ** 2 <= 1
-            )
-            return larger_than_inner and smaller_than_outer
+            if not self.left:
+                right_of_box = boid.pos_x > self.center_x
+                larger_than_inner = (boid.pos_x - self.center_x) ** 2 / self.a ** 2 + (
+                    boid.pos_y - self.center_y
+                ) ** 2 / self.b ** 2 >= 1
+                smaller_than_outer = (boid.pos_x - self.center_x) ** 2 / (self.a + self.width) ** 2 + (
+                    boid.pos_y - self.center_y
+                ) ** 2 / (self.b + self.height) ** 2 <= 1
+
+                inside = not larger_than_inner
+
+                return larger_than_inner and smaller_than_outer and right_of_box, inside
+
+            left_of_box = boid.pos_x < -self.center_x
+            larger_than_inner = (boid.pos_x + self.center_x) ** 2 / self.a ** 2 + (
+                boid.pos_y + self.center_y
+            ) ** 2 / self.b ** 2 >= 1
+            smaller_than_outer = (boid.pos_x + self.center_x) ** 2 / (self.a + self.width) ** 2 + (
+                boid.pos_y + self.center_y
+            ) ** 2 / (self.b + self.height) ** 2 <= 1
+
+            inside = not larger_than_inner
+
+            return larger_than_inner and smaller_than_outer and left_of_box, inside
 
         def sample(self, size: int) -> Tuple[np.ndarray, np.ndarray]:
             """
