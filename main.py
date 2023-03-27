@@ -28,8 +28,6 @@ def main():
         scatter.set_offsets(positions)
         paths = [m.get_path().transformed(m.get_transform()) for m in markers]
         scatter.set_paths(paths)
-
-        # scatter.set_paths(markers)
         return scatter
 
     track.plot(ax=ax, color=track_color)
