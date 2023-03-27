@@ -40,14 +40,14 @@ class Track:
         self.spacing = spacing
         self.upper_straight = self.Straight(
             center_x=self.center_x,
-            center_y=self.center_y + (self.curve_height/2 + self.straight_height / 2),
+            center_y=self.center_y + (self.curve_height / 2 + self.straight_height / 2),
             width=self.straight_width,
             height=self.straight_height,
             upper=True,
         )
         self.lower_straight = self.Straight(
             center_x=self.center_x,
-            center_y=self.center_y - (self.curve_height/2 + self.straight_height / 2),
+            center_y=self.center_y - (self.curve_height / 2 + self.straight_height / 2),
             width=self.straight_width,
             height=self.straight_height,
             upper=False,
@@ -56,7 +56,7 @@ class Track:
             center_x=self.center_x + self.straight_width / 2,
             center_y=self.center_y,
             a=spacing,
-            b=curve_height/2,
+            b=curve_height / 2,
             width=curve_width,
             height=straight_height,
             left=True,
@@ -65,7 +65,7 @@ class Track:
             center_x=self.center_x + self.straight_width / 2,
             center_y=self.center_y,
             a=spacing,
-            b=curve_height/2,
+            b=curve_height / 2,
             width=curve_width,
             height=straight_height,
             left=False,
@@ -120,6 +120,7 @@ class Track:
         markers = []
         self.align()
         self.steer_towards_track()
+        self.steer_clockwise()
 
         for boid in self.boids:
             boid.update()
@@ -130,8 +131,35 @@ class Track:
             markers.append(marker)
 
         return offsets, markers
-    
-    
+
+    def steer_clockwise(self):
+        for boid in self.boids:
+            if boid.cooldown > 0:
+                continue
+
+            # steer the boid to the left
+            if (
+                boid.pos_y < self.center_y
+                and not np.pi / 2 < boid.direction < 3 * np.pi / 2
+                and self.center_x - self.straight_width / 2 < boid.pos_x < self.center_x + self.straight_width / 2
+            ):
+                boid.direction = (boid.direction + np.pi/1.5) % (2 * np.pi)
+
+            # steer the boid to the right
+            elif (
+                boid.pos_y > self.center_y
+                and np.pi / 2 < boid.direction < 3 * np.pi / 2
+                and self.center_x - self.straight_width / 2 < boid.pos_x < self.center_x + self.straight_width / 2
+            ):
+                boid.direction = (boid.direction + np.pi/1.5) % (2 * np.pi)
+
+            # steer the boid up
+            elif boid.pos_x < self.center_x - self.straight_width / 2 and np.pi < boid.direction < 2 * np.pi:
+                boid.direction = (boid.direction + np.pi/2) % (2 * np.pi)
+
+            # steer the boid down
+            elif self.center_x + self.straight_width / 2 < boid.pos_x and 0 < boid.direction < np.pi:
+                boid.direction = (boid.direction + np.pi/2) % (2 * np.pi)
 
     def align(self):
         boid_positions = np.array([[b.pos_x, b.pos_y] for b in self.boids])
@@ -139,22 +167,37 @@ class Track:
         for boid in self.boids:
             neighbours = self.get_neighbours(boid, radius=0.5, tree=tree)
             directions = np.array([b.direction for b in neighbours])
-            boid.direction = np.arctan2(np.mean(np.sin(directions)), np.mean(np.cos(directions)))
+            boid.direction = np.arctan2(np.mean(np.sin(directions)), np.mean(np.cos(directions))) % (2 * np.pi)
 
     def get_neighbours(self, boid: Boid, radius: float, tree: KDTree) -> np.ndarray:
         indices = tree.query_radius([[boid.pos_x, boid.pos_y]], r=radius, count_only=False, return_distance=False)
         return self.boids[indices[0]]
 
-    def border(x,y,half_width,half_height,spacing):
-        return np.where((-half_width < x) & (x < half_width), 0, (x-np.sign(x)*half_width)**2/spacing**2) + y**2/half_height**2
-    
-    def steer_towards_track(self):
-        for boid in self.boids:
-            if Track.border(boid.pos_x,boid.pos_y,self.straight_width/2,self.curve_height/2,self.spacing) < 1:
-                boid.direction = np.angle(np.complex(boid.pos_x,boid.pos_y))
+    @staticmethod
+    def border(x, y, half_width, half_height, spacing):
+        return (
+            np.where((-half_width < x) & (x < half_width), 0, (x - np.sign(x) * half_width) ** 2 / spacing ** 2)
+            + y ** 2 / half_height ** 2
+        )
 
-            if Track.border(boid.pos_x,boid.pos_y,self.straight_width/2,self.curve_height/2+self.straight_height,self.spacing+self.curve_width) > 1:
-                boid.direction = np.angle(np.complex(-boid.pos_x,-boid.pos_y))
+    def steer_towards_track(self) -> None:
+        for boid in self.boids:
+            if Track.border(boid.pos_x, boid.pos_y, self.straight_width / 2, self.curve_height / 2, self.spacing) < 1:
+                boid.direction = np.angle(np.complex(boid.pos_x, boid.pos_y)) % (2 * np.pi)
+                boid.cooldown = 10
+
+            if (
+                Track.border(
+                    boid.pos_x,
+                    boid.pos_y,
+                    self.straight_width / 2,
+                    self.curve_height / 2 + self.straight_height,
+                    self.spacing + self.curve_width,
+                )
+                > 1
+            ):
+                boid.direction = np.angle(np.complex(-boid.pos_x, -boid.pos_y)) % (2 * np.pi)
+                boid.cooldown = 10
 
     class Straight:
         def __init__(self, center_x: float, center_y: float, width: float, height: float, upper: bool):
@@ -197,7 +240,7 @@ class Track:
             contains_y = self.center_y - self.height / 2 <= boid.pos_y <= self.center_y + self.height / 2
 
             if self.upper:
-                return contains_x and contains_y,  self.center_y - self.height / 2 > boid.pos_y
+                return contains_x and contains_y, self.center_y - self.height / 2 > boid.pos_y
 
             return contains_x and contains_y, boid.pos_y > self.center_y + self.height / 2
 

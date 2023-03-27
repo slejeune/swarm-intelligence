@@ -14,6 +14,7 @@ class Boid:
         self.direction = np.random.uniform(low=0, high=2 * np.pi)
         self.speed = 0.02  # np.random.uniform(low=0, high=0.05)
         self.domain = domain
+        self.cooldown = 0
 
     def update(self) -> None:
         # update position based on directional angle and speed
@@ -25,6 +26,7 @@ class Boid:
         self.pos_y += random.uniform(-self.noise, self.noise)
 
         self.wrap()
+        self.cooldown = self.cooldown - 1
 
     def wrap(self):
         width = self.domain[1, 0] - self.domain[0, 0]
