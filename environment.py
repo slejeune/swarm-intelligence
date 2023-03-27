@@ -18,7 +18,6 @@ class Track:
     ):
         """
         Create a track. The track is subdivided into 4 components: 2 straight lanes and 2 ellipsoids.
-
         Args:
             center_x (Optional[float]): the x-coordinate of the center of the track.
             center_y (Optional[float]): the x-coordinate of the center of the track.
@@ -65,15 +64,14 @@ class Track:
             left=False,
         )
         self.components = [self.upper_straight, self.lower_straight, self.left_ellipsoid, self.right_ellipsoid]
+        self.boids = np.array([])
 
     def plot(self, ax: plt.Axes, color: Optional[str] = "tab:blue") -> plt.Axes:
         """
         Plot the track.
-
         Args:
             ax (plt.Axes): The ax object whereon to plot.
             color (str): The color of the plotted track.
-
         Returns:
             (plt.Axes): The ax object whereon to plot.
         """
@@ -84,10 +82,8 @@ class Track:
     def sample(self, size: int) -> Tuple[np.ndarray, np.ndarray]:
         """
         Sample a random position within the straight.
-
         Args:
             size(int): The number of positions to sample.
-
         Returns:
             Tuple[float, float]: The sampled x and y positions.
         """
@@ -101,13 +97,28 @@ class Track:
         remainder = size - len(self.components) * (size // len(self.components))
         if remainder > 0:
             samples_x[-remainder:], samples_y[-remainder:] = np.random.choice(self.components).sample(remainder)
+
+        self.boids = np.array([Boid(samples_x[i], samples_y[i]) for i in range(samples_x.shape[0])])
+
         return samples_x, samples_y
+    
+    def update(self) -> list:
+        '''
+        Update the position of the boids each timestep.
+        Returns:
+            list: The new positions of the boids.
+        '''
+        offsets = []
+        for boid in self.boids:
+            boid.update()
+            offsets.append([boid.pos_x, boid.pos_y])
+
+        return offsets
 
     class Straight:
         def __init__(self, center_x: float, center_y: float, width: float, height: float):
             """
             Create a straight lane.
-
             Args:
                 center_x (float): the x-coordinate of the center of the lane.
                 center_y (float): the x-coordinate of the center of the lane.
@@ -122,10 +133,8 @@ class Track:
         def sample(self, size: int) -> Tuple[np.ndarray, np.ndarray]:
             """
             Sample a random position within the straight.
-
             Args:
                 size(int): The number of positions to sample.
-
             Returns:
                 Tuple[np.ndarray, np.ndarray]: The sampled x and y positions.
             """
@@ -136,10 +145,8 @@ class Track:
         def contains(self, boid: Boid):
             """
             Verify whether the position of the boid falls within this component.
-
             Args:
                 boid (Boid): The boid.
-
             Returns:
                 bool: True if the position of the boid falls within this component.
             """
@@ -150,11 +157,9 @@ class Track:
         def plot(self, ax: plt.Axes, color: str) -> plt.Axes:
             """
             Plot the ellipsoid.
-
             Args:
                 ax (plt.Axes): The ax object whereon to plot.
                 color (str): The color of the plotted track.
-
             Returns:
                 (plt.Axes): The ax object whereon to plot.
             """
@@ -178,9 +183,7 @@ class Track:
         ):
             """
             Create a curved tack component.
-
             An ellipsoid can be described as x**2/a**2 + y**2/b**2 = 1.
-
             Args:
                 center_x (float): the x-coordinate of the center of the ellipsoid.
                 center_y (float): the x-coordinate of the center of the ellipsoid.
@@ -213,7 +216,6 @@ class Track:
                 yet.
             Args:
                 boid (Boid): The boid.
-
             Returns:
                 bool: True if the position of the boid falls within this component.
             """
@@ -226,10 +228,8 @@ class Track:
         def sample(self, size: int) -> Tuple[np.ndarray, np.ndarray]:
             """
             Sample a random position within the ellipsoid.
-
             Args:
                 size(int): The number of positions to sample.
-
             Returns:
                 Tuple[np.ndarray, np.ndarray]: The sampled x and y positions.
             """
@@ -250,11 +250,9 @@ class Track:
         def plot(self, ax: plt.Axes, color: str) -> plt.Axes:
             """
             Plot the ellipsoid.
-
             Args:
                 ax (plt.Axes): The ax object whereon to plot.
                 color (str): The color of the plotted track.
-
             Returns:
                 (plt.Axes): The ax object whereon to plot.
             """
