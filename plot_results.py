@@ -15,5 +15,7 @@ for size in sizes:
     ax.scatter(results['density'], results['speed'], label=f"N={size}", marker=next(marker))
 ax.set_xlabel("density")
 ax.set_ylabel("speed")
+ax.set_title("Fundamental diagram for boids on a circular track\nAlignment=False, Cohesion=False, Separation=False")
 ax.legend(title="population size")
+fig.tight_layout()
 plt.show()

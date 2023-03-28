@@ -15,7 +15,7 @@ def main():
     track = Track(spacing=1)
     
     # N = 15, 20, 25, 30 and 34
-    x, y = track.sample(size=30)
+    x, y = track.sample(size=100)
 
     xlist = np.linspace(-6.0, 6.0, 1000)
     ylist = np.linspace(-6.0, 6.0, 1000)

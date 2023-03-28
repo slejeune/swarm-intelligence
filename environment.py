@@ -235,7 +235,7 @@ class Track:
         directions = np.zeros((self.boids.shape[0], 2))
         for i, boid in enumerate(self.boids):
             neighbours = self.get_neighbours(boid=boid, radius=0.5, tree=tree)
-            positions = np.array([[b.pos_x, b.pos_y] for b in neighbours])# if boid.in_view(b)])
+            positions = np.array([[b.pos_x, b.pos_y] for b in neighbours if boid.in_view(b)])
             directions[i] = np.mean(positions, axis=0) - np.array([boid.pos_x, boid.pos_y])
         return directions
             
@@ -244,7 +244,7 @@ class Track:
         results = np.zeros((self.boids.shape[0], 2))
         for i, boid in enumerate(self.boids):
             neighbours = self.get_neighbours(boid, radius=0.5, tree=tree)
-            directions = np.array([b.direction for b in neighbours])# if boid.in_view(b)])
+            directions = np.array([b.direction for b in neighbours if boid.in_view(b)])
             results[i] = np.mean(directions, axis=0)
         return results   
 
