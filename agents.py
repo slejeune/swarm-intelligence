@@ -14,6 +14,7 @@ class Boid:
         self.direction = np.random.uniform(low=0, high=2 * np.pi)
         self.speed = 0.02  # np.random.uniform(low=0, high=0.05)
         self.domain = domain
+        self.fov = 300
         self.cooldown = 0
 
     def update(self) -> None:
@@ -27,6 +28,13 @@ class Boid:
 
         self.wrap()
         self.cooldown = self.cooldown - 1
+
+    def in_view(self, boid):
+        difference = complex(boid.pos_x-self.pos_x, boid.pos_y-self.pos_y)
+        # complex number mult can have tiny variations, so extra check if self
+        if difference == 0:
+            return True
+        return np.abs(np.angle(difference * complex(np.cos(self.direction), np.sin(self.direction)))) <= np.radians(self.fov/2)    
 
     def wrap(self):
         width = self.domain[1, 0] - self.domain[0, 0]

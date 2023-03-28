@@ -70,7 +70,8 @@ class Track:
             height=straight_height,
             left=False,
         )
-        self.components = [self.upper_straight, self.lower_straight, self.left_ellipsoid, self.right_ellipsoid]
+        self.components = [self.upper_straight, self.lower_straight,
+                           self.left_ellipsoid, self.right_ellipsoid]
         self.boids = np.array([])
         self.domain = domain
 
@@ -119,8 +120,8 @@ class Track:
         offsets = []
         markers = []
         self.align()
-        self.steer_towards_track()
         self.steer_clockwise()
+        self.steer_towards_track()
 
         for boid in self.boids:
             boid.update()
@@ -166,7 +167,7 @@ class Track:
         tree = KDTree(boid_positions, leaf_size=10)
         for boid in self.boids:
             neighbours = self.get_neighbours(boid, radius=0.5, tree=tree)
-            directions = np.array([b.direction for b in neighbours])
+            directions = np.array([b.direction for b in neighbours if boid.in_view(b)])
             boid.direction = np.arctan2(np.mean(np.sin(directions)), np.mean(np.cos(directions))) % (2 * np.pi)
 
     def get_neighbours(self, boid: Boid, radius: float, tree: KDTree) -> np.ndarray:
@@ -176,15 +177,16 @@ class Track:
     @staticmethod
     def border(x, y, half_width, half_height, spacing):
         return (
-            np.where((-half_width < x) & (x < half_width), 0, (x - np.sign(x) * half_width) ** 2 / spacing ** 2)
+            np.where((-half_width < x) & (x < half_width), 0,
+                     (x - np.sign(x) * half_width) ** 2 / spacing ** 2)
             + y ** 2 / half_height ** 2
         )
 
     def steer_towards_track(self) -> None:
         for boid in self.boids:
             if Track.border(boid.pos_x, boid.pos_y, self.straight_width / 2, self.curve_height / 2, self.spacing) < 1:
-                boid.direction = np.angle(np.complex(boid.pos_x, boid.pos_y)) % (2 * np.pi)
-                boid.cooldown = 10
+                boid.direction = np.angle(complex(boid.pos_x, boid.pos_y))  # % (2 * np.pi)
+                boid.cooldown = 5
 
             if (
                 Track.border(
@@ -196,8 +198,8 @@ class Track:
                 )
                 > 1
             ):
-                boid.direction = np.angle(np.complex(-boid.pos_x, -boid.pos_y)) % (2 * np.pi)
-                boid.cooldown = 10
+                boid.direction = np.angle(complex(-boid.pos_x, -boid.pos_y))  # % (2 * np.pi)
+                boid.cooldown = 5
 
     class Straight:
         def __init__(self, center_x: float, center_y: float, width: float, height: float, upper: bool):
