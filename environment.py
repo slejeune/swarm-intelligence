@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.markers import MarkerStyle
@@ -19,6 +21,7 @@ class Track:
         curve_height: Optional[float] = 2.9,
         spacing: Optional[float] = 1.5,
         domain: np.ndarray = np.array([[-6, -6], [6, 6]]),
+        measurement_width: float = 2,
     ):
         """
         Create a track. The track is subdivided into 4 components: 2 straight lanes and 2 ellipsoids.
@@ -74,6 +77,10 @@ class Track:
                            self.left_ellipsoid, self.right_ellipsoid]
         self.boids = np.array([])
         self.domain = domain
+        self.start_x = self.center_x + measurement_width//2
+        self.finish_x = self.center_x - measurement_width//2
+        self.burnin = -300
+
 
     def plot(self, ax: plt.Axes, color: Optional[str] = "tab:blue") -> plt.Axes:
         """
@@ -119,19 +126,71 @@ class Track:
         """
         offsets = []
         markers = []
-        self.align()
+        boid_positions = np.array([[b.pos_x, b.pos_y] for b in self.boids])
+        tree = KDTree(boid_positions, leaf_size=10)
         self.steer_clockwise()
+
+        align_directions = self.align(tree)
+        cohesion_directions = self.cohesion(tree)
+        separation_directions = self.separation(tree)
+        for i, boid in enumerate(self.boids):
+            boid.direction = boid.direction + align_directions[i]  + cohesion_directions[i] +  separation_directions[i]
+            
         self.steer_towards_track()
 
         for boid in self.boids:
+            boid_old_x = boid.pos_x
+
             boid.update()
+
+            if 0 < self.burnin <= 1000:
+                self.check_speed_limit(boid, boid_old_x)
+               
 
             offsets.append([boid.pos_x, boid.pos_y])
             marker = MarkerStyle(">")
-            marker._transform = marker.get_transform().rotate_deg(np.degrees(boid.direction))
+            marker._transform = marker.get_transform().rotate_deg(np.angle(complex(*boid.direction),True))
+            marker._transform = marker.get_transform().scale(4, 4)
             markers.append(marker)
 
+        if 0 < self.burnin <=1000:
+
+            in_da_zone= [b for b in self.boids if b.passed_checkpoint >= 0 and b.done_measuring == -1]
+            for b in in_da_zone:
+                b.neighbour_count+=len(in_da_zone)
+
+                
+        if self.burnin == 1000:
+            speeds = np.array([(boid.done_measuring-boid.passed_checkpoint) for boid in self.boids if boid.done_measuring>=0 and boid.passed_checkpoint>=0])
+            densities = np.array([boid.neighbour_count for boid in self.boids if boid.done_measuring>=0 and boid.passed_checkpoint>=0])/speeds
+
+            speeds = 2/speeds
+
+            json_data = {"speed": speeds.tolist(), 'density': densities.tolist()}
+
+            with open(rf'./results_{self.boids.shape[0]}.json', 'w') as f:
+                json.dump(json_data, f)
+
+            fig, ax = plt.subplots()
+            ax.scatter(densities, speeds)
+            ax.set_xlabel("density")
+            ax.set_ylabel("speed")
+            fig.show()
+
+        self.burnin += 1
+        if self.burnin % 100 == 0:
+            print(self.burnin)    
+            
+
         return offsets, markers
+    
+    def check_speed_limit(self, boid: Boid, old_x: float):
+        if boid.done_measuring <=0:
+            if boid.passed_checkpoint <=0 and boid.pos_x <= self.start_x and old_x > self.start_x and boid.pos_y < self.center_y:
+                boid.passed_checkpoint = self.burnin
+
+            if boid.passed_checkpoint >=0 and boid.pos_x <= self.finish_x and old_x > self.finish_x and boid.pos_y < self.center_y:
+                boid.done_measuring = self.burnin
 
     def steer_clockwise(self):
         for boid in self.boids:
@@ -141,39 +200,58 @@ class Track:
             # steer the boid to the left
             if (
                 boid.pos_y < self.center_y
-                and not np.pi / 2 < boid.direction < 3 * np.pi / 2
+                and boid.direction[0] > 0
                 and self.center_x - self.straight_width / 2 < boid.pos_x < self.center_x + self.straight_width / 2
             ):
-                boid.direction = (boid.direction + np.pi/1.5) % (2 * np.pi)
+                boid.direction[0] = -boid.direction[0]
 
             # steer the boid to the right
             elif (
                 boid.pos_y > self.center_y
-                and np.pi / 2 < boid.direction < 3 * np.pi / 2
+                and boid.direction[0] < 0
                 and self.center_x - self.straight_width / 2 < boid.pos_x < self.center_x + self.straight_width / 2
             ):
-                boid.direction = (boid.direction + np.pi/1.5) % (2 * np.pi)
+                boid.direction[0] = -boid.direction[0]
+
 
             # steer the boid up
-            elif boid.pos_x < self.center_x - self.straight_width / 2 and np.pi < boid.direction < 2 * np.pi:
-                boid.direction = (boid.direction + np.pi/2) % (2 * np.pi)
+            elif boid.pos_x < self.center_x - self.straight_width / 2 and boid.direction[1] < 0:
+                boid.direction[1] = -boid.direction[1]
+
 
             # steer the boid down
-            elif self.center_x + self.straight_width / 2 < boid.pos_x and 0 < boid.direction < np.pi:
-                boid.direction = (boid.direction + np.pi/2) % (2 * np.pi)
+            elif self.center_x + self.straight_width / 2 < boid.pos_x and boid.direction[1] > 0:
+                boid.direction[1] = -boid.direction[1]
 
-    def align(self):
-        boid_positions = np.array([[b.pos_x, b.pos_y] for b in self.boids])
-        tree = KDTree(boid_positions, leaf_size=10)
-        for boid in self.boids:
+    def separation(self, tree: KDTree) -> np.ndarray:
+        directions = np.zeros((self.boids.shape[0], 2))  
+        for i, boid in enumerate(self.boids):
+            closest_neighbour = self.boids[tree.query([[boid.pos_x,boid.pos_y]],2,return_distance=False)[0, 1]]
+            directions[i] = 1/(10*(np.array([boid.pos_x,boid.pos_y])-np.array([closest_neighbour.pos_x,closest_neighbour.pos_y])))
+        return directions    
+
+
+    def cohesion(self, tree: KDTree) -> np.ndarray:
+        directions = np.zeros((self.boids.shape[0], 2))
+        for i, boid in enumerate(self.boids):
+            neighbours = self.get_neighbours(boid=boid, radius=0.5, tree=tree)
+            positions = np.array([[b.pos_x, b.pos_y] for b in neighbours if boid.in_view(b)])
+            directions[i] = np.mean(positions, axis=0) - np.array([boid.pos_x, boid.pos_y])
+        return directions
+            
+
+    def align(self, tree: KDTree):
+        results = np.zeros((self.boids.shape[0], 2))
+        for i, boid in enumerate(self.boids):
             neighbours = self.get_neighbours(boid, radius=0.5, tree=tree)
             directions = np.array([b.direction for b in neighbours if boid.in_view(b)])
-            boid.direction = np.arctan2(np.mean(np.sin(directions)), np.mean(np.cos(directions))) % (2 * np.pi)
+            results[i] = np.mean(directions, axis=0)
+        return results   
 
     def get_neighbours(self, boid: Boid, radius: float, tree: KDTree) -> np.ndarray:
         indices = tree.query_radius([[boid.pos_x, boid.pos_y]], r=radius, count_only=False, return_distance=False)
         return self.boids[indices[0]]
-
+    
     @staticmethod
     def border(x, y, half_width, half_height, spacing):
         return (
@@ -185,7 +263,7 @@ class Track:
     def steer_towards_track(self) -> None:
         for boid in self.boids:
             if Track.border(boid.pos_x, boid.pos_y, self.straight_width / 2, self.curve_height / 2, self.spacing) < 1:
-                boid.direction = np.angle(complex(boid.pos_x, boid.pos_y))  # % (2 * np.pi)
+                boid.direction = [boid.pos_x, boid.pos_y]  
                 boid.cooldown = 5
 
             if (
@@ -198,7 +276,7 @@ class Track:
                 )
                 > 1
             ):
-                boid.direction = np.angle(complex(-boid.pos_x, -boid.pos_y))  # % (2 * np.pi)
+                boid.direction = [-boid.pos_x, -boid.pos_y]
                 boid.cooldown = 5
 
     class Straight:

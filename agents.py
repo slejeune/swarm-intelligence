@@ -11,16 +11,22 @@ class Boid:
         self.pos_x = pos_x
         self.pos_y = pos_y
         self.noise = noise
-        self.direction = np.random.uniform(low=0, high=2 * np.pi)
-        self.speed = 0.02  # np.random.uniform(low=0, high=0.05)
+        self.direction = np.random.uniform(low=-1, high=1, size=2)
+        self.speed = 0.05  # np.random.uniform(low=0, high=0.05)
         self.domain = domain
         self.fov = 300
         self.cooldown = 0
+        self.passed_checkpoint = -1
+        self.done_measuring = -1
+        self.neighbour_count = 0
 
     def update(self) -> None:
+        # normalize direction vector
+        self.direction/=np.linalg.norm(self.direction)
+
         # update position based on directional angle and speed
-        self.pos_x += np.cos(self.direction) * self.speed
-        self.pos_y += np.sin(self.direction) * self.speed
+        self.pos_x += self.direction[0] * self.speed
+        self.pos_y += self.direction[1] * self.speed
 
         # Add noise
         self.pos_x += random.uniform(-self.noise, self.noise)
@@ -34,7 +40,7 @@ class Boid:
         # complex number mult can have tiny variations, so extra check if self
         if difference == 0:
             return True
-        return np.abs(np.angle(difference * complex(np.cos(self.direction), np.sin(self.direction)))) <= np.radians(self.fov/2)    
+        return np.abs(np.angle(difference * complex(*self.direction))) <= np.radians(self.fov/2)    
 
     def wrap(self):
         width = self.domain[1, 0] - self.domain[0, 0]

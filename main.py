@@ -13,7 +13,9 @@ def main():
     boid_marker = ">"
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
     track = Track(spacing=1)
-    x, y = track.sample(size=101)
+    
+    # N = 15, 20, 25, 30 and 34
+    x, y = track.sample(size=30)
 
     xlist = np.linspace(-6.0, 6.0, 1000)
     ylist = np.linspace(-6.0, 6.0, 1000)
